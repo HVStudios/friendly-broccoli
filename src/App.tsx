@@ -92,10 +92,33 @@ interface CategoryBarProps {
   amount: number
   max: number
   color: string
+  budget?: number
+  onSetBudget?: (amount: number) => void
 }
 
-function CategoryBar({ category, amount, max, color }: CategoryBarProps) {
-  const pct = max > 0 ? (amount / max) * 100 : 0
+function CategoryBar({ category, amount, max, color, budget, onSetBudget }: CategoryBarProps) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+
+  const hasBudget = budget !== undefined && budget > 0
+  const pct = hasBudget
+    ? Math.min((amount / budget) * 100, 100)
+    : max > 0 ? (amount / max) * 100 : 0
+  const overBudget = hasBudget && amount > budget
+  const nearBudget = hasBudget && !overBudget && amount / budget >= 0.8
+  const barColor = overBudget ? '#ef4444' : nearBudget ? '#f59e0b' : color
+
+  function startEdit() {
+    setDraft(hasBudget ? String(Math.round(budget!)) : '')
+    setEditing(true)
+  }
+
+  function commitEdit() {
+    const val = parseFloat(draft)
+    if (!isNaN(val) && val > 0) onSetBudget?.(val)
+    setEditing(false)
+  }
+
   return (
     <div className="category-bar">
       <div className="category-bar-header">
@@ -103,10 +126,37 @@ function CategoryBar({ category, amount, max, color }: CategoryBarProps) {
           <span className="category-dot" style={{ background: color }} />
           {category}
         </span>
-        <span className="category-amount">{amount.toFixed(2)} kr</span>
+        <span className="category-amounts">
+          <span className={overBudget ? 'amount-over' : 'category-amount'}>{amount.toFixed(0)} kr</span>
+          {onSetBudget && (
+            editing ? (
+              <>
+                <span className="budget-sep"> / </span>
+                <input
+                  autoFocus
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={draft}
+                  className="budget-input"
+                  onChange={e => setDraft(e.target.value)}
+                  onBlur={commitEdit}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') commitEdit()
+                    if (e.key === 'Escape') setEditing(false)
+                  }}
+                />
+              </>
+            ) : (
+              <button className="budget-set-btn" onClick={startEdit}>
+                {hasBudget ? ` / ${Math.round(budget!)} kr` : '+ budget'}
+              </button>
+            )
+          )}
+        </span>
       </div>
       <div className="bar-track">
-        <div className="bar-fill" style={{ width: `${pct.toFixed(1)}%`, background: color }} />
+        <div className="bar-fill" style={{ width: `${pct.toFixed(1)}%`, background: barColor }} />
       </div>
     </div>
   )
@@ -115,9 +165,11 @@ function CategoryBar({ category, amount, max, color }: CategoryBarProps) {
 interface SummaryProps {
   expenses: Expense[]
   incomes: Income[]
+  budgets: Record<string, number>
+  onSetBudget: (category: string, amount: number) => void
 }
 
-function Summary({ expenses, incomes }: SummaryProps) {
+function Summary({ expenses, incomes, budgets, onSetBudget }: SummaryProps) {
   const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0)
   const totalIncome = incomes.reduce((sum, i) => sum + i.amount, 0)
   const net = totalIncome - totalExpenses
@@ -154,7 +206,15 @@ function Summary({ expenses, incomes }: SummaryProps) {
           <p className="empty">No expenses this month.</p>
         ) : (
           sorted.map(([cat, amt]) => (
-            <CategoryBar key={cat} category={cat} amount={amt} max={max} color={CATEGORY_COLORS[cat] ?? '#94a3b8'} />
+            <CategoryBar
+              key={cat}
+              category={cat}
+              amount={amt}
+              max={max}
+              color={CATEGORY_COLORS[cat] ?? '#94a3b8'}
+              budget={budgets[cat]}
+              onSetBudget={(budgetAmt) => onSetBudget(cat, budgetAmt)}
+            />
           ))
         )}
       </div>
@@ -777,12 +837,34 @@ function InsightsCard({ summary }: InsightsCardProps) {
   )
 }
 
+type MobileTab = 'overview' | 'expenses' | 'income'
+
+function MobileTabBar({ active, onChange }: { active: MobileTab; onChange: (t: MobileTab) => void }) {
+  return (
+    <nav className="tab-bar">
+      <button className={`tab-btn${active === 'overview' ? ' tab-active' : ''}`} onClick={() => onChange('overview')}>
+        Overview
+      </button>
+      <button className={`tab-btn${active === 'expenses' ? ' tab-active' : ''}`} onClick={() => onChange('expenses')}>
+        Expenses
+      </button>
+      <button className={`tab-btn${active === 'income' ? ' tab-active' : ''}`} onClick={() => onChange('income')}>
+        Income
+      </button>
+    </nav>
+  )
+}
+
 export default function App() {
   const [session, setSession] = useState<Session | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
   const [guestMode, setGuestMode] = useState(false)
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [incomes, setIncomes] = useState<Income[]>([])
+  const [budgets, setBudgets] = useState<Record<string, number>>(() => {
+    try { return JSON.parse(localStorage.getItem('budgets_v1') ?? '{}') } catch { return {} }
+  })
+  const [activeTab, setActiveTab] = useState<MobileTab>('overview')
   const [currentMonth, setCurrentMonth] = useState<MonthState>(() => {
     const now = new Date()
     return { year: now.getFullYear(), month: now.getMonth() }
@@ -798,6 +880,14 @@ export default function App() {
     })
     return () => subscription.unsubscribe()
   }, [])
+
+  useEffect(() => {
+    localStorage.setItem('budgets_v1', JSON.stringify(budgets))
+  }, [budgets])
+
+  function setBudgetForCategory(category: string, amount: number) {
+    setBudgets(prev => ({ ...prev, [category]: amount }))
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -996,22 +1086,34 @@ export default function App() {
         )}
       </div>
       <MonthNav currentMonth={currentMonth} onPrev={prevMonth} onNext={nextMonth} />
-      <div className="charts-row">
-        <SpendingChart data={chartData} />
-        <CategoryPieChart expenses={monthExpenses} />
+      <div className={`content-overview${activeTab !== 'overview' ? ' mobile-hidden' : ''}`}>
+        <div className="charts-row">
+          <SpendingChart data={chartData} />
+          <CategoryPieChart expenses={monthExpenses} />
+        </div>
+        <InsightsCard summary={insightsSummary} />
       </div>
-      <InsightsCard summary={insightsSummary} />
       <div className="layout">
-        <aside>
-          <Summary expenses={monthExpenses} incomes={monthIncomes} />
+        <aside className={activeTab !== 'overview' ? 'mobile-hidden' : ''}>
+          <Summary
+            expenses={monthExpenses}
+            incomes={monthIncomes}
+            budgets={budgets}
+            onSetBudget={setBudgetForCategory}
+          />
         </aside>
         <main>
-          <AddExpenseForm onAdd={handleAddExpense} defaultDate={defaultDate} />
-          <ExpenseList expenses={monthExpenses} onDelete={handleDeleteExpense} onEdit={handleEditExpense} />
-          <AddIncomeForm onAdd={handleAddIncome} defaultDate={defaultDate} />
-          <IncomeList incomes={monthIncomes} onDelete={handleDeleteIncome} onEdit={handleEditIncome} />
+          <div className={`tab-section${activeTab !== 'expenses' ? ' mobile-hidden' : ''}`}>
+            <AddExpenseForm onAdd={handleAddExpense} defaultDate={defaultDate} />
+            <ExpenseList expenses={monthExpenses} onDelete={handleDeleteExpense} onEdit={handleEditExpense} />
+          </div>
+          <div className={`tab-section${activeTab !== 'income' ? ' mobile-hidden' : ''}`}>
+            <AddIncomeForm onAdd={handleAddIncome} defaultDate={defaultDate} />
+            <IncomeList incomes={monthIncomes} onDelete={handleDeleteIncome} onEdit={handleEditIncome} />
+          </div>
         </main>
       </div>
+      <MobileTabBar active={activeTab} onChange={setActiveTab} />
     </div>
   )
 }
