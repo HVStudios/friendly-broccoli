@@ -1,12 +1,12 @@
 {
-  "name": "Friendly Broccoli - Expense Tracker",
-  "short_name": "Friendly Broccoli",
+  "name": "Sage — Expense Tracker",
+  "short_name": "Sage",
   "description": "Track your expenses and income with AI-powered financial insights",
   "start_url": "/friendly-broccoli/",
   "scope": "/friendly-broccoli/",
   "display": "standalone",
-  "background_color": "#0f0a1a",
-  "theme_color": "#aa3bff",
+  "background_color": "#0f2d1a",
+  "theme_color": "#14532d",
   "orientation": "portrait-primary",
   "icons": [
     {
