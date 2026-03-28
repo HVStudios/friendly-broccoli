@@ -14,6 +14,8 @@ interface Expense {
   category: string
   amount: number
   recurring_id?: string | null
+  tags?: string[] | null
+  split_count?: number | null
   user_id?: string
   created_at?: string
 }
@@ -453,6 +455,9 @@ function AddExpenseForm({ onAdd, defaultDate }: AddExpenseFormProps) {
     description: '',
     category: CATEGORIES[0],
     amount: '',
+    tags: '',
+    split: false,
+    splitWays: 2,
   })
 
   useEffect(() => {
@@ -467,8 +472,14 @@ function AddExpenseForm({ onAdd, defaultDate }: AddExpenseFormProps) {
     e.preventDefault()
     const amount = parseFloat(form.amount)
     if (!form.date || !form.description || isNaN(amount) || amount <= 0) return
-    onAdd({ ...form, amount })
-    setForm({ date: defaultDate, description: '', category: CATEGORIES[0], amount: '' })
+    const tags = form.tags.split(',').map(t => t.trim()).filter(Boolean)
+    onAdd({
+      ...form,
+      amount: form.split ? amount / form.splitWays : amount,
+      tags,
+      split_count: form.split ? form.splitWays : null,
+    })
+    setForm({ date: defaultDate, description: '', category: CATEGORIES[0], amount: '', tags: '', split: false, splitWays: 2 })
   }
 
   return (
@@ -507,6 +518,39 @@ function AddExpenseForm({ onAdd, defaultDate }: AddExpenseFormProps) {
             required
           />
         </label>
+        <label style={{ gridColumn: '1 / -1' }}>
+          Tags <span style={{ fontWeight: 400, opacity: 0.6 }}>(comma-separated, optional)</span>
+          <input
+            type="text"
+            placeholder="e.g. work, reimbursable"
+            value={form.tags}
+            onChange={e => set('tags', e.target.value)}
+          />
+        </label>
+        <div className="split-toggle" style={{ gridColumn: '1 / -1' }}>
+          <label className="split-label">
+            <input
+              type="checkbox"
+              checked={form.split}
+              onChange={e => setForm(f => ({ ...f, split: e.target.checked }))}
+            />
+            Split bill
+          </label>
+          {form.split && (
+            <label className="split-ways-label">
+              Split
+              <input
+                type="number"
+                min="2"
+                max="20"
+                value={form.splitWays}
+                onChange={e => setForm(f => ({ ...f, splitWays: Math.max(2, parseInt(e.target.value) || 2) }))}
+                style={{ width: 56 }}
+              />
+              ways &nbsp;·&nbsp; your share: {form.amount ? `${(parseFloat(form.amount) / form.splitWays).toFixed(0)} kr` : '—'}
+            </label>
+          )}
+        </div>
         <button type="submit" className="add-btn">Add Expense</button>
       </div>
     </form>
@@ -595,14 +639,17 @@ type EditDraft = {
   description: string
   category: string
   amount: string | number
+  tags: string
+  split_count: number | null
 }
 
 function ExpenseList({ expenses, onDelete, onEdit }: ExpenseListProps) {
   const [search, setSearch] = useState('')
   const [filterCategory, setFilterCategory] = useState('All')
+  const [filterTag, setFilterTag] = useState('All')
   const [sortDesc, setSortDesc] = useState(true)
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [editDraft, setEditDraft] = useState<EditDraft>({ date: '', description: '', category: '', amount: '' })
+  const [editDraft, setEditDraft] = useState<EditDraft>({ date: '', description: '', category: '', amount: '', tags: '', split_count: null })
   const [swipedId, setSwipedId] = useState<string | null>(null)
   const touchStartX = useRef<number | null>(null)
   const touchItemId = useRef<string | null>(null)
@@ -610,20 +657,21 @@ function ExpenseList({ expenses, onDelete, onEdit }: ExpenseListProps) {
   function startEdit(e: Expense) {
     setEditingId(e.id)
     setSwipedId(null)
-    setEditDraft({ date: e.date, description: e.description, category: e.category, amount: e.amount })
+    setEditDraft({ date: e.date, description: e.description, category: e.category, amount: e.amount, tags: (e.tags ?? []).join(', '), split_count: e.split_count ?? null })
   }
 
   function cancelEdit() {
     setEditingId(null)
-    setEditDraft({ date: '', description: '', category: '', amount: '' })
+    setEditDraft({ date: '', description: '', category: '', amount: '', tags: '', split_count: null })
   }
 
   function saveEdit(id: string) {
     const amount = parseFloat(String(editDraft.amount))
     if (!editDraft.date || !editDraft.description || isNaN(amount) || amount <= 0) return
-    onEdit(id, { date: editDraft.date, description: editDraft.description, category: editDraft.category, amount })
+    const tags = editDraft.tags.split(',').map(t => t.trim()).filter(Boolean)
+    onEdit(id, { date: editDraft.date, description: editDraft.description, category: editDraft.category, amount, tags, split_count: editDraft.split_count })
     setEditingId(null)
-    setEditDraft({ date: '', description: '', category: '', amount: '' })
+    setEditDraft({ date: '', description: '', category: '', amount: '', tags: '', split_count: null })
   }
 
   function onTouchStart(id: string, clientX: number) {
@@ -644,9 +692,12 @@ function ExpenseList({ expenses, onDelete, onEdit }: ExpenseListProps) {
     touchItemId.current = null
   }
 
+  const allTags = [...new Set(expenses.flatMap(e => e.tags ?? []))].sort()
+
   const filtered = [...expenses]
     .filter(e => filterCategory === 'All' || e.category === filterCategory)
     .filter(e => e.description.toLowerCase().includes(search.toLowerCase()))
+    .filter(e => filterTag === 'All' || (e.tags ?? []).includes(filterTag))
     .sort((a, b) => sortDesc ? b.date.localeCompare(a.date) : a.date.localeCompare(b.date))
 
   return (
@@ -673,6 +724,16 @@ function ExpenseList({ expenses, onDelete, onEdit }: ExpenseListProps) {
           <option value="All">All categories</option>
           {CATEGORIES.map(c => <option key={c}>{c}</option>)}
         </select>
+        {allTags.length > 0 && (
+          <select
+            className="filter-category"
+            value={filterTag}
+            onChange={e => setFilterTag(e.target.value)}
+          >
+            <option value="All">All tags</option>
+            {allTags.map(t => <option key={t}>{t}</option>)}
+          </select>
+        )}
       </div>
       {filtered.length === 0 ? (
         <p className="empty">{expenses.length === 0 ? 'No expenses this month.' : 'No matching expenses.'}</p>
@@ -708,6 +769,16 @@ function ExpenseList({ expenses, onDelete, onEdit }: ExpenseListProps) {
                   <input type="number" min="0.01" step="0.01" value={String(editDraft.amount)}
                     onChange={ev => setEditDraft(d => ({ ...d, amount: ev.target.value }))} />
                 </td>
+                <td style={{ gridColumn: '1 / -1' }}>
+                  <input type="text" placeholder="tags (comma-separated)"
+                    value={editDraft.tags}
+                    onChange={ev => setEditDraft(d => ({ ...d, tags: ev.target.value }))} />
+                </td>
+                <td>
+                  <input type="number" min="1" placeholder="split (e.g. 2)"
+                    value={editDraft.split_count ?? ''}
+                    onChange={ev => setEditDraft(d => ({ ...d, split_count: ev.target.value ? parseInt(ev.target.value) : null }))} />
+                </td>
                 <td>
                   <div className="row-actions">
                     <button className="save-btn" onClick={() => saveEdit(e.id)}>&#10003;</button>
@@ -725,13 +796,25 @@ function ExpenseList({ expenses, onDelete, onEdit }: ExpenseListProps) {
                 onClick={() => { if (swipedId === e.id) setSwipedId(null) }}
               >
                 <td>{new Date(e.date + 'T00:00:00').toLocaleDateString('default', { month: 'short', day: 'numeric' })}</td>
-                <td>{e.description}{e.recurring_id && <span className="recurring-indicator" title="Recurring">↻</span>}</td>
+                <td>
+                  {e.description}{e.recurring_id && <span className="recurring-indicator" title="Recurring">↻</span>}
+                  {(e.tags ?? []).length > 0 && (
+                    <div className="tag-chips">
+                      {(e.tags ?? []).map(tag => (
+                        <span key={tag} className="tag-chip">{tag}</span>
+                      ))}
+                    </div>
+                  )}
+                </td>
                 <td><span className="badge" style={{
                   color: CATEGORY_COLORS[e.category] ?? '#94a3b8',
                   background: `${CATEGORY_COLORS[e.category] ?? '#94a3b8'}18`,
                   borderColor: `${CATEGORY_COLORS[e.category] ?? '#94a3b8'}44`,
                 }}>{e.category}</span></td>
-                <td className="amount-cell">{e.amount.toFixed(2)} kr</td>
+                <td className="amount-cell">
+                  {e.amount.toFixed(2)} kr
+                  {e.split_count && <span className="split-badge">÷{e.split_count}</span>}
+                </td>
                 <td>
                   <div className="row-actions">
                     <button className="edit-btn" onClick={ev => { ev.stopPropagation(); startEdit(e) }}>&#9998;</button>
@@ -1300,6 +1383,129 @@ function RecurringSection({ recurring, onAdd, onDelete, onToggle }: RecurringSec
   )
 }
 
+interface OverviewStatsCardProps {
+  expenses: Expense[]
+  incomes: Income[]
+  budgets: Record<string, number>
+  currentMonth: MonthState
+}
+
+function OverviewStatsCard({ expenses, incomes, budgets, currentMonth }: OverviewStatsCardProps) {
+  function monthTotals(year: number, month: number) {
+    const exp = expenses.filter(e => {
+      const d = new Date(e.date + 'T00:00:00')
+      return d.getFullYear() === year && d.getMonth() === month
+    })
+    const inc = incomes.filter(i => {
+      const d = new Date(i.date + 'T00:00:00')
+      return d.getFullYear() === year && d.getMonth() === month
+    })
+    const totalExp = exp.reduce((s, e) => s + e.amount, 0)
+    const totalInc = inc.reduce((s, i) => s + i.amount, 0)
+    const byCategory = exp.reduce<Record<string, number>>((acc, e) => {
+      acc[e.category] = (acc[e.category] ?? 0) + e.amount
+      return acc
+    }, {})
+    return { totalExp, totalInc, byCategory }
+  }
+
+  const prevDate = new Date(currentMonth.year, currentMonth.month - 1)
+  const curr = monthTotals(currentMonth.year, currentMonth.month)
+  const prev = monthTotals(prevDate.getFullYear(), prevDate.getMonth())
+
+  const spendDelta = prev.totalExp > 0 ? ((curr.totalExp - prev.totalExp) / prev.totalExp) * 100 : null
+  const categoryDeltas = CATEGORIES.map(cat => ({
+    cat,
+    delta: (curr.byCategory[cat] ?? 0) - (prev.byCategory[cat] ?? 0),
+  })).filter(x => Math.abs(x.delta) > 0.5).sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
+  const topIncrease = categoryDeltas.find(x => x.delta > 0)
+  const topDecrease = categoryDeltas.find(x => x.delta < 0)
+
+  const savingsRate = curr.totalInc > 0 ? Math.round(((curr.totalInc - curr.totalExp) / curr.totalInc) * 100) : null
+
+  let savingsStreak = 0
+  let budgetStreak = 0
+  const totalBudgeted = Object.values(budgets).reduce((s, v) => s + v, 0)
+  for (let i = 1; i <= 12; i++) {
+    const d = new Date(currentMonth.year, currentMonth.month - i)
+    const m = monthTotals(d.getFullYear(), d.getMonth())
+    if (m.totalInc > 0 && m.totalInc > m.totalExp) savingsStreak++
+    else break
+  }
+  if (totalBudgeted > 0) {
+    for (let i = 1; i <= 12; i++) {
+      const d = new Date(currentMonth.year, currentMonth.month - i)
+      const m = monthTotals(d.getFullYear(), d.getMonth())
+      if (m.totalExp > 0 && m.totalExp <= totalBudgeted) budgetStreak++
+      else break
+    }
+  }
+
+  const hasData = curr.totalExp > 0 || curr.totalInc > 0
+
+  if (!hasData && savingsStreak === 0 && budgetStreak === 0) return null
+
+  return (
+    <div className="stats-card card">
+      <div className="stats-grid">
+        <div className="stats-col">
+          <p className="stats-label">vs Last Month</p>
+          {spendDelta !== null ? (
+            <>
+              <p className={`stats-delta ${spendDelta > 0 ? 'delta-up' : 'delta-down'}`}>
+                {spendDelta > 0 ? '↑' : '↓'} {Math.abs(Math.round(spendDelta))}% spending
+              </p>
+              {topIncrease && (
+                <p className="stats-detail"><span className="delta-up">↑</span> {topIncrease.cat} +{Math.round(topIncrease.delta).toLocaleString('no')} kr</p>
+              )}
+              {topDecrease && (
+                <p className="stats-detail"><span className="delta-down">↓</span> {topDecrease.cat} {Math.round(topDecrease.delta).toLocaleString('no')} kr</p>
+              )}
+            </>
+          ) : (
+            <p className="stats-detail">No data last month</p>
+          )}
+        </div>
+
+        <div className="stats-col">
+          <p className="stats-label">Savings Rate</p>
+          {savingsRate !== null ? (
+            <>
+              <p className={`stats-delta ${savingsRate >= 0 ? 'delta-down' : 'delta-up'}`}>{savingsRate}%</p>
+              <div className="savings-rate-bar">
+                <div
+                  className="savings-rate-fill"
+                  style={{
+                    width: `${Math.min(Math.max(savingsRate, 0), 100)}%`,
+                    background: savingsRate >= 20 ? '#10b981' : savingsRate >= 0 ? '#f59e0b' : '#ef4444',
+                  }}
+                />
+              </div>
+            </>
+          ) : (
+            <p className="stats-detail">Add income to track</p>
+          )}
+        </div>
+      </div>
+
+      {(savingsStreak > 0 || budgetStreak > 0) && (
+        <div className="stats-streaks">
+          {savingsStreak > 0 && (
+            <span className="streak-badge">
+              💚 Saving {savingsStreak} month{savingsStreak > 1 ? 's' : ''} in a row
+            </span>
+          )}
+          {budgetStreak > 0 && (
+            <span className="streak-badge">
+              🎯 Under budget {budgetStreak} month{budgetStreak > 1 ? 's' : ''} in a row
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 type MobileTab = 'overview' | 'expenses' | 'income' | 'budgets' | 'recurring'
 
 function MobileTabBar({ active, onChange }: { active: MobileTab; onChange: (t: MobileTab) => void }) {
@@ -1623,6 +1829,12 @@ export default function App() {
           <SpendingChart data={chartData} />
           <CategoryPieChart expenses={monthExpenses} />
         </div>
+        <OverviewStatsCard
+          expenses={expenses}
+          incomes={incomes}
+          budgets={budgets}
+          currentMonth={currentMonth}
+        />
       </div>
       <div className="layout">
         <aside className={activeTab !== 'overview' ? 'mobile-hidden' : ''}>
