@@ -1092,16 +1092,30 @@ function MobileTabBar({ active, onChange }: { active: MobileTab; onChange: (t: M
   return (
     <nav className="tab-bar">
       <button className={`tab-btn${active === 'overview' ? ' tab-active' : ''}`} onClick={() => onChange('overview')}>
-        Overview
+        <svg viewBox="0 0 20 20" fill="currentColor" width="22" height="22" aria-hidden="true">
+          <path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h3a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h3a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z" />
+        </svg>
+        <span>Overview</span>
       </button>
       <button className={`tab-btn${active === 'expenses' ? ' tab-active' : ''}`} onClick={() => onChange('expenses')}>
-        Expenses
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" width="22" height="22" aria-hidden="true">
+          <circle cx="10" cy="10" r="8" />
+          <path d="M10 6.5v7M7.5 11l2.5 2.5 2.5-2.5" />
+        </svg>
+        <span>Expenses</span>
       </button>
       <button className={`tab-btn${active === 'income' ? ' tab-active' : ''}`} onClick={() => onChange('income')}>
-        Income
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" width="22" height="22" aria-hidden="true">
+          <circle cx="10" cy="10" r="8" />
+          <path d="M10 13.5v-7M7.5 9l2.5-2.5L12.5 9" />
+        </svg>
+        <span>Income</span>
       </button>
       <button className={`tab-btn${active === 'budgets' ? ' tab-active' : ''}`} onClick={() => onChange('budgets')}>
-        Budgets
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" width="22" height="22" aria-hidden="true">
+          <path d="M3 16h14M5 16V10m4 6V6m4 10V8m4 8V4" />
+        </svg>
+        <span>Budgets</span>
       </button>
     </nav>
   )

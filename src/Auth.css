@@ -11,7 +11,7 @@
   width: 100%;
   max-width: 400px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 20px;
   padding: 40px 32px;
 
   h1 {
@@ -36,18 +36,18 @@
   button[type='submit'] {
     margin-top: 4px;
     padding: 10px;
-    background: linear-gradient(135deg, #7c3aed 0%, #a855f7 100%);
+    background: linear-gradient(135deg, #2d5a41 0%, #6b9e7f 100%);
     color: #fff;
     border: none;
-    border-radius: 8px;
+    border-radius: 10px;
     font-size: 15px;
     font-family: var(--sans);
     cursor: pointer;
-    box-shadow: 0 4px 14px rgba(124, 58, 237, 0.4);
+    box-shadow: 0 4px 14px rgba(45, 90, 65, 0.4);
     transition: box-shadow 0.15s, transform 0.15s;
 
     &:hover:not(:disabled) {
-      box-shadow: 0 6px 20px rgba(124, 58, 237, 0.5);
+      box-shadow: 0 6px 20px rgba(45, 90, 65, 0.5);
       transform: translateY(-1px);
     }
 
