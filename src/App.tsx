@@ -399,6 +399,133 @@ function CategoryPieChart({ expenses }: CategoryPieChartProps) {
   )
 }
 
+// ── Achievement system ──────────────────────────────────────
+
+interface AchievementDef {
+  id: string
+  icon: string
+  name: string
+  description: string
+  xp: number
+  category: string
+}
+
+const ACHIEVEMENT_DEFS: AchievementDef[] = [
+  // Getting Started
+  { id: 'first_entry',       icon: '🌱', name: 'First Entry',       description: 'Log your first expense',                              xp: 25,  category: 'Getting Started' },
+  { id: 'month_one',         icon: '📅', name: 'Month One',         description: 'Track both income and expenses in the same month',    xp: 50,  category: 'Getting Started' },
+  // Savings
+  { id: 'first_surplus',     icon: '💰', name: 'First Surplus',     description: 'End a month with income greater than expenses',       xp: 100, category: 'Savings' },
+  { id: 'ten_percent',       icon: '🟢', name: '10% Club',          description: 'Save at least 10% of income in a month',             xp: 75,  category: 'Savings' },
+  { id: 'super_saver',       icon: '⭐', name: 'Super Saver',       description: 'Save at least 20% of income in a month',             xp: 150, category: 'Savings' },
+  { id: 'on_a_roll',         icon: '🔥', name: 'On a Roll',         description: 'Positive savings 3 months in a row',                 xp: 200, category: 'Savings' },
+  { id: 'consistent_saver',  icon: '🏆', name: 'Consistent Saver', description: 'Positive savings 6 months in a row',                 xp: 400, category: 'Savings' },
+  // Budgeting
+  { id: 'budget_setter',     icon: '📊', name: 'Budget Setter',     description: 'Set budgets for 3 or more categories',               xp: 50,  category: 'Budgeting' },
+  { id: 'budget_keeper',     icon: '✅', name: 'Budget Keeper',     description: 'Stay under your total budget for a full month',      xp: 100, category: 'Budgeting' },
+  { id: 'perfect_month',     icon: '🎯', name: 'Perfect Month',     description: 'Every category stays under budget in a month',       xp: 200, category: 'Budgeting' },
+  { id: 'budget_streak',     icon: '🔄', name: 'Budget Streak',     description: 'Stay under budget 3 months in a row',                xp: 300, category: 'Budgeting' },
+  // Planning
+  { id: 'autopilot',         icon: '🔁', name: 'Autopilot',         description: 'Set up your first recurring expense',                xp: 50,  category: 'Planning' },
+  { id: 'planner_pro',       icon: '📋', name: 'Planner Pro',       description: 'Have 3 or more active recurring expenses',           xp: 100, category: 'Planning' },
+  // Milestones
+  { id: 'three_months',      icon: '🌊', name: '3 Months Strong',   description: 'Track your finances for 3 months',                   xp: 100, category: 'Milestones' },
+  { id: 'half_year',         icon: '🏄', name: 'Half Year',         description: 'Track your finances for 6 months',                   xp: 200, category: 'Milestones' },
+  { id: 'year_round',        icon: '🧗', name: 'Year Round',        description: 'Track your finances for 12 months',                  xp: 500, category: 'Milestones' },
+]
+
+interface LevelDef {
+  name: string
+  minXP: number
+  color: string
+}
+
+const LEVELS: LevelDef[] = [
+  { name: 'Beginner',  minXP: 0,    color: '#94a3b8' },
+  { name: 'Saver',     minXP: 100,  color: '#10b981' },
+  { name: 'Planner',   minXP: 300,  color: '#3b82f6' },
+  { name: 'Budgeter',  minXP: 600,  color: '#f59e0b' },
+  { name: 'Investor',  minXP: 1000, color: '#8b5cf6' },
+  { name: 'Sage',      minXP: 2000, color: '#4f7c62' },
+]
+
+function computeAchievements(
+  expenses: Expense[],
+  incomes: Income[],
+  budgets: Record<string, number>,
+  recurringExpenses: RecurringExpense[],
+): { unlocked: Set<string>; totalXP: number; level: LevelDef; nextLevel: LevelDef | null; progressPct: number; trackedMonths: number; bestSavingsRate: number | null; longestSavingsStreak: number } {
+  // Build a sorted list of unique YYYY-MM strings that have expense entries
+  const monthSet = new Set<string>()
+  expenses.forEach(e => monthSet.add(e.date.slice(0, 7)))
+  const months = [...monthSet].sort()
+  const trackedMonths = months.length
+
+  // Per-month stats
+  type MonthStats = { totalExp: number; totalInc: number; savingsRate: number | null; underBudget: boolean; perfectMonth: boolean; hasIncome: boolean }
+  const statsMap: Record<string, MonthStats> = {}
+  const totalBudgeted = Object.values(budgets).filter(v => v > 0).reduce((s, v) => s + v, 0)
+  const budgetCats = Object.keys(budgets).filter(k => budgets[k] > 0)
+
+  for (const ym of months) {
+    const mExp = expenses.filter(e => e.date.startsWith(ym))
+    const mInc = incomes.filter(i => i.date.startsWith(ym))
+    const totalExp = mExp.reduce((s, e) => s + e.amount, 0)
+    const totalInc = mInc.reduce((s, i) => s + i.amount, 0)
+    const savingsRate = totalInc > 0 ? (totalInc - totalExp) / totalInc * 100 : null
+    const underBudget = totalBudgeted > 0 && totalExp > 0 && totalExp <= totalBudgeted
+    const byCategory = mExp.reduce<Record<string, number>>((acc, e) => { acc[e.category] = (acc[e.category] ?? 0) + e.amount; return acc }, {})
+    const perfectMonth = budgetCats.length >= 3 && budgetCats.every(cat => (byCategory[cat] ?? 0) <= budgets[cat])
+    statsMap[ym] = { totalExp, totalInc, savingsRate, underBudget, perfectMonth, hasIncome: mInc.length > 0 }
+  }
+
+  // Streak helpers
+  function longestRun(pred: (ym: string) => boolean): number {
+    let max = 0, cur = 0
+    for (const ym of months) { pred(ym) ? (cur++, max = Math.max(max, cur)) : (cur = 0) }
+    return max
+  }
+
+  const isSaving = (ym: string) => { const s = statsMap[ym]; return s.totalInc > 0 && s.totalInc > s.totalExp }
+
+  const longestSavingsStreak = longestRun(isSaving)
+  const bestSavingsRate = months.length > 0
+    ? Math.max(...months.map(ym => statsMap[ym].savingsRate ?? -Infinity))
+    : null
+  const bestRate = bestSavingsRate === -Infinity ? null : bestSavingsRate
+
+  // Evaluate each achievement
+  const unlocked = new Set<string>()
+  const check = (id: string, condition: boolean) => { if (condition) unlocked.add(id) }
+
+  check('first_entry',      expenses.length > 0)
+  check('month_one',        months.some(ym => statsMap[ym].hasIncome && statsMap[ym].totalExp > 0))
+  check('first_surplus',    months.some(ym => isSaving(ym)))
+  check('ten_percent',      months.some(ym => (statsMap[ym].savingsRate ?? 0) >= 10))
+  check('super_saver',      months.some(ym => (statsMap[ym].savingsRate ?? 0) >= 20))
+  check('on_a_roll',        longestSavingsStreak >= 3)
+  check('consistent_saver', longestSavingsStreak >= 6)
+  check('budget_setter',    Object.values(budgets).filter(v => v > 0).length >= 3)
+  check('budget_keeper',    months.some(ym => statsMap[ym].underBudget))
+  check('perfect_month',    months.some(ym => statsMap[ym].perfectMonth))
+  check('budget_streak',    longestRun(ym => statsMap[ym].underBudget) >= 3)
+  check('autopilot',        recurringExpenses.length > 0)
+  check('planner_pro',      recurringExpenses.filter(r => r.active).length >= 3)
+  check('three_months',     trackedMonths >= 3)
+  check('half_year',        trackedMonths >= 6)
+  check('year_round',       trackedMonths >= 12)
+
+  const totalXP = ACHIEVEMENT_DEFS.filter(a => unlocked.has(a.id)).reduce((s, a) => s + a.xp, 0)
+  const level = [...LEVELS].reverse().find(l => totalXP >= l.minXP) ?? LEVELS[0]
+  const nextLevelIdx = LEVELS.indexOf(level) + 1
+  const nextLevel = nextLevelIdx < LEVELS.length ? LEVELS[nextLevelIdx] : null
+  const progressPct = nextLevel
+    ? ((totalXP - level.minXP) / (nextLevel.minXP - level.minXP)) * 100
+    : 100
+
+  return { unlocked, totalXP, level, nextLevel, progressPct, trackedMonths, bestSavingsRate: bestRate, longestSavingsStreak }
+}
+
 function toDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
@@ -1506,7 +1633,108 @@ function OverviewStatsCard({ expenses, incomes, budgets, currentMonth }: Overvie
   )
 }
 
-type MobileTab = 'overview' | 'expenses' | 'income' | 'budgets' | 'recurring'
+interface ProfileTabProps {
+  expenses: Expense[]
+  incomes: Income[]
+  budgets: Record<string, number>
+  recurringExpenses: RecurringExpense[]
+  session: Session | null
+  guestMode: boolean
+}
+
+function ProfileTab({ expenses, incomes, budgets, recurringExpenses, session, guestMode: _guestMode }: ProfileTabProps) {
+  const { unlocked, totalXP, level, nextLevel, progressPct, trackedMonths, bestSavingsRate, longestSavingsStreak } = useMemo(
+    () => computeAchievements(expenses, incomes, budgets, recurringExpenses),
+    [expenses, incomes, budgets, recurringExpenses]
+  )
+
+  const email = session?.user?.email ?? 'Guest'
+  const initial = email[0].toUpperCase()
+  const unlockedCount = unlocked.size
+  const categories = [...new Set(ACHIEVEMENT_DEFS.map(a => a.category))]
+
+  return (
+    <div className="profile-tab">
+      {/* Header */}
+      <div className="profile-header card">
+        <div className="profile-avatar" style={{ background: `linear-gradient(135deg, ${level.color}cc, ${level.color})` }}>
+          {initial}
+        </div>
+        <div className="profile-info">
+          <p className="profile-email">{email}</p>
+          <span className="profile-level-badge" style={{ color: level.color, borderColor: `${level.color}44`, background: `${level.color}15` }}>
+            {level.name}
+          </span>
+        </div>
+      </div>
+
+      {/* XP / Level progress */}
+      <div className="profile-xp card">
+        <div className="xp-header">
+          <span className="xp-label">{totalXP} XP · {unlockedCount}/{ACHIEVEMENT_DEFS.length} achievements</span>
+          {nextLevel && <span className="xp-next">{nextLevel.minXP - totalXP} XP to {nextLevel.name}</span>}
+        </div>
+        <div className="xp-bar-track">
+          <div className="xp-bar-fill" style={{ width: `${progressPct}%`, background: level.color }} />
+        </div>
+        <div className="xp-level-labels">
+          <span style={{ color: level.color }}>{level.name}</span>
+          {nextLevel && <span>{nextLevel.name}</span>}
+        </div>
+      </div>
+
+      {/* Stats */}
+      <div className="profile-stats card">
+        <h2>Stats</h2>
+        <div className="profile-stats-grid">
+          <div className="profile-stat">
+            <span className="profile-stat-value">{trackedMonths}</span>
+            <span className="profile-stat-label">Months tracked</span>
+          </div>
+          <div className="profile-stat">
+            <span className="profile-stat-value">{longestSavingsStreak}</span>
+            <span className="profile-stat-label">Best saving streak</span>
+          </div>
+          <div className="profile-stat">
+            <span className="profile-stat-value">
+              {bestSavingsRate !== null ? `${Math.round(bestSavingsRate)}%` : '—'}
+            </span>
+            <span className="profile-stat-label">Best savings rate</span>
+          </div>
+          <div className="profile-stat">
+            <span className="profile-stat-value">{recurringExpenses.filter(r => r.active).length}</span>
+            <span className="profile-stat-label">Recurring set up</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Achievements */}
+      <div className="profile-achievements card">
+        <h2>Achievements</h2>
+        {categories.map(cat => (
+          <div key={cat} className="achievement-category">
+            <p className="achievement-cat-label">{cat}</p>
+            <div className="achievement-grid">
+              {ACHIEVEMENT_DEFS.filter(a => a.category === cat).map(a => {
+                const done = unlocked.has(a.id)
+                return (
+                  <div key={a.id} className={`achievement-item${done ? ' achievement-unlocked' : ' achievement-locked'}`} title={a.description}>
+                    <span className="achievement-icon">{a.icon}</span>
+                    <span className="achievement-name">{a.name}</span>
+                    <span className="achievement-desc">{a.description}</span>
+                    <span className="achievement-xp">+{a.xp} XP</span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+type MobileTab = 'overview' | 'expenses' | 'income' | 'budgets' | 'recurring' | 'profile'
 
 function MobileTabBar({ active, onChange }: { active: MobileTab; onChange: (t: MobileTab) => void }) {
   return (
@@ -1543,6 +1771,12 @@ function MobileTabBar({ active, onChange }: { active: MobileTab; onChange: (t: M
           <path d="M4 6v4h4" />
         </svg>
         <span>Recurring</span>
+      </button>
+      <button className={`tab-btn${active === 'profile' ? ' tab-active' : ''}`} onClick={() => onChange('profile')}>
+        <svg viewBox="0 0 20 20" fill="currentColor" width="22" height="22" aria-hidden="true">
+          <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
+        </svg>
+        <span>Profile</span>
       </button>
     </nav>
   )
@@ -1871,6 +2105,16 @@ export default function App() {
           onAdd={handleAddRecurring}
           onDelete={handleDeleteRecurring}
           onToggle={handleToggleRecurring}
+        />
+      </div>
+      <div className={`profile-wrapper${activeTab !== 'profile' ? ' mobile-hidden' : ''}`}>
+        <ProfileTab
+          expenses={expenses}
+          incomes={incomes}
+          budgets={budgets}
+          recurringExpenses={recurringExpenses}
+          session={session}
+          guestMode={guestMode}
         />
       </div>
       <MobileTabBar active={activeTab} onChange={setActiveTab} />
